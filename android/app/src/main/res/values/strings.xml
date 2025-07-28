@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Uni Craft</string>
-    <string name="facebook_app_id">184261631346853</string>
-    <string name="fb_login_protocol_scheme">fb184261631346853</string>
-    <string name="facebook_client_token">cf718237b668aaab65e40352e6a8e338</string>
-</resources>

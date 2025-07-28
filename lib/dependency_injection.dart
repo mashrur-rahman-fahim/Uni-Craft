@@ -1,10 +1,12 @@
 import 'package:get/get.dart';
-
-import 'network_controller.dart';
+import 'package:uni_craft/network_controller.dart';
 
 class DependencyInjection {
-
   static void init() {
-    Get.put<NetworkController>(NetworkController(),permanent:true);
+    // Initialize network controller
+    Get.put<NetworkController>(NetworkController(), permanent: true);
+
+    // Initialize other controllers here as needed
+    print("Dependency injection initialized successfully");
   }
 }

@@ -7,12 +7,25 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:932823267060:android:b89b70a8b6d60c149c10a1",
+        "mobilesdk_app_id": "1:932823267060:android:87e1ec5634d68ea69c10a1",
         "android_client_info": {
-          "package_name": "com.example.uni_craft"
+          "package_name": "com.mashrur.uni_craft"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "932823267060-98chaqjgjcf1j6m3970bhfee85h4an5k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mashrur.uni_craft",
+            "certificate_hash": "94f5bb2fc6ff21b1e2660bf424eb5e4b683b388b"
+          }
+        },
+        {
+          "client_id": "932823267060-h3n3dgl3vucl2rtvffjhldur9j871h22.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAOTn1hp7mgNLyiVfTyfLNm_ZLCV7izh6o"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "932823267060-arbbasq58hd9gctpd3mjt33ff2n2l3eu.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "932823267060-0k21afrm77q6dm8mct759kmvslftid2q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.uniCraft.RunnerTests"
+              }
+            }
+          ]
         }
       }
     }

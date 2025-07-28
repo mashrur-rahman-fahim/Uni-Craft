@@ -1,13 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-//import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:uni_craft/LoginPage.dart';
 import 'package:uni_craft/dashboard.dart';
-import 'package:uni_craft/main.dart';
-
+import 'package:uni_craft/services/members_service.dart';
 import 'Homepage.dart';
 
 class Authpage2 extends StatefulWidget {
@@ -29,7 +24,7 @@ class _AuthpageState2 extends State<Authpage2> {
   Widget build(BuildContext context) {
     double screenW = MediaQuery.of(context).size.width;
     double screenH = MediaQuery.of(context).size.height;
-    // TODO: implement build
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: SingleChildScrollView(
@@ -38,40 +33,82 @@ class _AuthpageState2 extends State<Authpage2> {
             Container(
               height: screenH,
               width: screenW,
-              child: StreamBuilder(
-                stream: FirebaseFirestore.instance
-                    .collection('Profile')
-                    .snapshots(),
-                builder: (context, AsyncSnapshot<QuerySnapshot> snapshot) {
-                  if (snapshot.hasData) {
-                    final res = snapshot.data!.docs.toList();
-
-                    for (var r in res) {
-                      if (r['uid'] == currentUser.currentUser!.uid) {
-                        role = r['role'];
-                        code = r['code'];
-                        snap = true;
-                        break;
-                      }
-                    }
-                    for (var i in res) {
-                      if (code == i['code'] && i['role'] == "Administrator") {
-                        uid_admin = i['uid'];
-                        break;
-                      }
-                    }
+              child: FutureBuilder<bool>(
+                future: _checkUserAccess(),
+                builder: (context, accessSnapshot) {
+                  // Handle loading state
+                  if (accessSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
                   }
 
-                  if (snapshot.hasData &&
-                      snapshot.data!.docs.length >= 1 &&
-                      snap == true) {
-
-                    snap = false;
-                    return Dashboard(role, uid_admin, code);
-                  } else {
-
+                  // If user doesn't have access or error occurred, redirect to Homepage
+                  if (!accessSnapshot.hasData || !accessSnapshot.data!) {
                     return Homepage();
                   }
+
+                  // User has access, proceed with normal auth flow
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('Profile') // Use Profile collection for consistency
+                        .snapshots(),
+                    builder: (context, AsyncSnapshot<QuerySnapshot> snapshot) {
+                      // Handle loading state
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      // Handle error state
+                      if (snapshot.hasError) {
+                        print('StreamBuilder error: ${snapshot.error}');
+                        return Homepage(); // Fallback to Homepage on error
+                      }
+
+                      // Handle no data state
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return Homepage(); // No user profiles, go to Homepage
+                      }
+
+                      try {
+                        final res = snapshot.data!.docs.toList();
+
+                        // Safely find user profile
+                        for (var r in res) {
+                          final data = r.data();
+                          if (data is Map<String, dynamic> &&
+                              data['uid'] == currentUser.currentUser?.uid) {
+                            role = data['role'];
+                            code = data['code'] ?? data['joinCode']; // Handle both field names
+                            snap = true;
+                            break;
+                          }
+                        }
+
+                        // Safely find admin user
+                        if (code != null) {
+                          for (var i in res) {
+                            final data = i.data();
+                            if (data is Map<String, dynamic> &&
+                                code == (data['code'] ?? data['joinCode']) &&
+                                data['role'] == "Administrator") {
+                              uid_admin = data['uid'];
+                              break;
+                            }
+                          }
+                        }
+
+                        // Navigate based on user profile existence and role
+                        if (snap == true && role != null) {
+                          snap = false;
+                          return Dashboard(role, uid_admin, code);
+                        } else {
+                          return Homepage();
+                        }
+                      } catch (e) {
+                        print('Error processing user profile data: $e');
+                        return Homepage(); // Fallback to Homepage on processing error
+                      }
+                    },
+                  );
                 },
               ),
             ),
@@ -79,5 +116,33 @@ class _AuthpageState2 extends State<Authpage2> {
         ),
       ),
     );
+  }
+
+  // Check if current user still has access to the group
+  Future<bool> _checkUserAccess() async {
+    try {
+      final currentAuthUser = currentUser.currentUser;
+      if (currentAuthUser == null) {
+        return false; // No authenticated user
+      }
+
+      // Check if user still exists in the Profile collection (active member)
+      final member = await MembersService.getCurrentMember();
+      if (member == null) {
+        print('User not found in group - redirecting to homepage');
+        return false; // User has been removed from group
+      }
+
+      // Check if user is still active
+      if (!member.isActive) {
+        print('User account is inactive - redirecting to homepage');
+        return false; // User account is deactivated
+      }
+
+      return true; // User has valid access
+    } catch (e) {
+      print('Error checking user access: $e');
+      return false; // Error occurred, deny access for security
+    }
   }
 }

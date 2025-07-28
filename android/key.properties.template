@@ -1,0 +1,13 @@
+# Android Keystore Properties
+# Copy this file to android/key.properties and fill in your actual values
+# DO NOT commit this file to version control!
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=C:/path/to/your/upload-keystore.jks
+
+# Instructions:
+# 1. Generate keystore: keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+# 2. Update the paths and passwords above
+# 3. Uncomment signing config in android/app/build.gradle.kts

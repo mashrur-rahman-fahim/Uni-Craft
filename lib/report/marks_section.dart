@@ -89,7 +89,7 @@ class _marks_secState extends State<marks_sec> {
                                 keyboardType: TextInputType.number,
                               ),
                               ElevatedButton(
-                                  style: ElevatedButton.styleFrom(primary: Color(0xffA0DCE2)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Color(0xffA0DCE2)),
                                   onPressed: () {
                                     widget.temp[0][widget.temp[1]]['quiz'] =
                                         quiz.text.toString();
@@ -145,7 +145,7 @@ class _marks_secState extends State<marks_sec> {
                                 keyboardType: TextInputType.number,
                               ),
                               ElevatedButton(
-                                  style: ElevatedButton.styleFrom(primary: Color(0xffA0DCE2)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Color(0xffA0DCE2)),
                                   onPressed: () {
                                     widget.temp[0][widget.temp[1]]['mid'] =
                                         mid.text.toString();
@@ -201,7 +201,7 @@ class _marks_secState extends State<marks_sec> {
                                 keyboardType: TextInputType.number,
                               ),
                               ElevatedButton(
-                                  style: ElevatedButton.styleFrom(primary: Color(0xffA0DCE2)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Color(0xffA0DCE2)),
                                   onPressed: () {
                                     widget.temp[0][widget.temp[1]]['final'] =
                                         fina.text.toString();

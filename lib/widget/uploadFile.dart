@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -17,17 +16,17 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../Homepage.dart';
 import '../api/firebase_api.dart';
-import '../notification.dart';
 import 'button_widget.dart';
 
 class uploadFile extends StatefulWidget {
-  var code2;
-  uploadFile(this.code2);
+  final dynamic code2;
+  const uploadFile(this.code2, {Key? key}) : super(key: key);
   @override
   State<uploadFile> createState() => _uploadFileState();
 }
 
 class _uploadFileState extends State<uploadFile> {
+  final GlobalKey<FormState> formKey = GlobalKey<FormState>();
   var urlDownload;
   UploadTask? task;
   File? file;
@@ -357,30 +356,6 @@ class _uploadFileState extends State<uploadFile> {
                                         check_for_save = false;
                                       }
                                       if (check_for_save == true) {
-                                        PushNotifications.init().then((value)async{
-                                          final token= await FirebaseMessaging.instance.getToken();
-                                          print(token);
-                                          for(int i=0;i<to.length;i++){
-                                            var data={
-                                              'to':to[i],
-                                              'priority':'high',
-                                              'notification':{
-                                                'title':"New Link! ",
-                                                'body':caption.text.toString(),
-                                              },
-
-
-                                            };
-                                            await http.post(Uri.parse('https://fcm.googleapis.com/fcm/send'),
-                                                body:jsonEncode(data) ,
-                                                headers: {
-                                                  'Content-Type':'application/json; charset=UTF-8',
-                                                  'Authorization':'key=AAAA2TCZdvQ:APA91bHvIxfRdJ4yoEJXHDrPKBcMeWmf-VlVcHuh6gvun7QUGwrFiN9dobcO7H8jx1Z7ayt3nXEV2yjnoWB3_VbdranUUy8UNRfuEDOtb9vCWqi-DXxmZk-1Bnul2UfUnX1zhi-pm9vH'
-                                                }
-                                            );}
-
-
-                                        });
                                         showDialog(
                                           context: context,
                                           builder: (context) {
@@ -460,30 +435,6 @@ class _uploadFileState extends State<uploadFile> {
     setState(() {});
 
     if (task == null) return;
-    PushNotifications.init().then((value)async{
-      final token= await FirebaseMessaging.instance.getToken();
-      print(token);
-      for(int i=0;i<to.length;i++){
-        var data={
-          'to':to[i],
-          'priority':'high',
-          'notification':{
-            'title':"Study Materials",
-            'body':"New File uploded!",
-          },
-
-
-        };
-        await http.post(Uri.parse('https://fcm.googleapis.com/fcm/send'),
-            body:jsonEncode(data) ,
-            headers: {
-              'Content-Type':'application/json; charset=UTF-8',
-              'Authorization':'key=AAAA2TCZdvQ:APA91bHvIxfRdJ4yoEJXHDrPKBcMeWmf-VlVcHuh6gvun7QUGwrFiN9dobcO7H8jx1Z7ayt3nXEV2yjnoWB3_VbdranUUy8UNRfuEDOtb9vCWqi-DXxmZk-1Bnul2UfUnX1zhi-pm9vH'
-            }
-        );}
-
-
-    });
 
     final snapshot = await task!.whenComplete(() {});
     urlDownload = await snapshot.ref.getDownloadURL();

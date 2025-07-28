@@ -1,355 +1,579 @@
-import 'dart:convert';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
-import 'package:http/http.dart' as http;
-import 'package:uni_craft/notification.dart';
+import 'package:uni_craft/services/notice_service.dart';
+import 'package:uni_craft/utils.dart';
 
-import 'Homepage.dart';
-import 'main.dart';
+class AddNotice extends StatefulWidget {
+  final dynamic code;
+  final String role;
+  final Map<String, dynamic>? editNotice;
 
-class add_notice extends StatefulWidget {
-  var code,role1;
-  add_notice(this.code,this.role1);
+  const AddNotice(this.code, this.role, {super.key, this.editNotice});
+
   @override
-  State<add_notice> createState() => _add_noticeState();
+  State<AddNotice> createState() => _AddNoticeState();
 }
 
-class _add_noticeState extends State<add_notice> {
-  var text = TextEditingController();
+class _AddNoticeState extends State<AddNotice> {
+  final _titleController = TextEditingController();
+  final _contentController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  bool _isLoading = false;
 
-  var caption = TextEditingController();
+  String _selectedCategory = 'general';
+  String _selectedPriority = 'normal';
+  DateTime? _expiryDate;
+  List<String> _tags = [];
+  final TextEditingController _tagController = TextEditingController();
+  bool _sendNotification = true;
 
-  var count = "";
-  int c = 0;
-  var strm_opn = false;
-  String? string;
-  // void initState() {
-  //   // TODO: implement initState
-  //   super.initState();
-  //   notificationServices.requestNotificationPermission();
-  //
-  //   notificationServices.getDeviceToken().then((value){
-  //     print('device token '+value);
-  //
-  //
-  //   });
-  //
-  // }
-  List to=[];
+  final List<Map<String, dynamic>> _categories = [
+    {'value': 'general', 'label': 'General', 'icon': Icons.info},
+    {'value': 'academic', 'label': 'Academic', 'icon': Icons.school},
+    {'value': 'event', 'label': 'Event', 'icon': Icons.event},
+    {'value': 'announcement', 'label': 'Announcement', 'icon': Icons.campaign},
+    {'value': 'urgent', 'label': 'Urgent', 'icon': Icons.warning},
+  ];
+
+  final List<Map<String, dynamic>> _priorities = [
+    {'value': 'low', 'label': 'Low', 'color': Colors.green},
+    {'value': 'normal', 'label': 'Normal', 'color': Color(0xff1b6e70)},
+    {'value': 'medium', 'label': 'Medium', 'color': Colors.orange},
+    {'value': 'high', 'label': 'High', 'color': Colors.red},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.editNotice != null) {
+      _populateFields();
+    }
+  }
+
+  void _populateFields() {
+    final notice = widget.editNotice!;
+    _titleController.text = notice['title'] ?? '';
+    _contentController.text = notice['content'] ?? '';
+    _selectedCategory = notice['category'] ?? 'general';
+    _selectedPriority = notice['priority'] ?? 'normal';
+    _tags = List<String>.from(notice['tags'] ?? []);
+
+    if (notice['expiryDate'] != null) {
+      _expiryDate = notice['expiryDate'].toDate();
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _tagController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectExpiryDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _expiryDate ?? DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() {
+        _expiryDate = picked;
+      });
+    }
+  }
+
+  void _addTag() {
+    final tag = _tagController.text.trim();
+    if (tag.isNotEmpty && !_tags.contains(tag) && _tags.length < 5) {
+      setState(() {
+        _tags.add(tag);
+        _tagController.clear();
+      });
+    }
+  }
+
+  void _removeTag(String tag) {
+    setState(() {
+      _tags.remove(tag);
+    });
+  }
+
+  Future<void> _saveNotice() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        AppUtils.showErrorSnackBar(context, 'User not authenticated');
+        return;
+      }
+
+      // Get user profile for author name
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('Profile')
+          .doc(currentUser.uid)
+          .get();
+
+      String authorName = 'Unknown';
+      if (userDoc.exists) {
+        final userData = userDoc.data() as Map<String, dynamic>?;
+        authorName = userData?['name'] ?? userData?['name1'] ?? 'Unknown';
+      }
+
+      bool success;
+      if (widget.editNotice != null) {
+        // Update existing notice
+        success = await NoticeService.updateNotice(
+          noticeId: widget.editNotice!['id'],
+          title: _titleController.text.trim(),
+          content: _contentController.text.trim(),
+          category: _selectedCategory,
+          priority: _selectedPriority,
+          tags: _tags,
+          expiryDate: _expiryDate,
+        );
+      } else {
+        // Create new notice
+        success = await NoticeService.addNotice(
+          title: _titleController.text.trim(),
+          content: _contentController.text.trim(),
+          groupCode: widget.code.toString(),
+          authorId: currentUser.uid,
+          authorName: authorName,
+          authorEmail: currentUser.email ?? '',
+          category: _selectedCategory,
+          priority: _selectedPriority,
+          tags: _tags,
+          expiryDate: _expiryDate,
+          sendNotification: _sendNotification,
+        );
+      }
+
+      if (success) {
+        AppUtils.showSuccessSnackBar(
+          context,
+          widget.editNotice != null ? 'Notice updated successfully' : 'Notice added successfully'
+        );
+        Navigator.of(context).pop(true);
+      } else {
+        AppUtils.showErrorSnackBar(
+          context,
+          widget.editNotice != null ? 'Failed to update notice' : 'Failed to add notice'
+        );
+      }
+    } catch (e) {
+      AppUtils.showErrorSnackBar(context, 'Error: ${e.toString()}');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    double screenW = MediaQuery.of(context).size.width;
-    double screenH = MediaQuery.of(context).size.height;
+    final bool isEdit = widget.editNotice != null;
+
     return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Color(0xffb8d8d8),
+      backgroundColor: const Color(0xffb8d8d8),
       appBar: AppBar(
-        title: Text("Add Notice"),
-        backgroundColor: Color(0xff7a9e9f),
+        title: Text(
+          isEdit ? 'Edit Notice' : 'Add Notice',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: const Color(0xff1b6e70),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
-      body:
-
-      StreamBuilder(stream: FirebaseFirestore.instance.collection('Profile').snapshots(), builder: (context,snapshots){
-        if(snapshots.hasData)
-          {
-            //print("fsd");
-            var res=snapshots.data!.docs.toList();
-            to.clear();
-
-            for(var r in res)
-              {
-                if(r['code']==widget.code.toString() && r['role']!="Administrator")
-                  {
-                   // print(r['name1']+widget.code);
-                    try{
-
-                      to.add(r['token']);
-
-                    }catch(e){};
-
-                  }
-              }
-           //print(to);
-          }
-
-        return SingleChildScrollView(
-          physics: BouncingScrollPhysics(),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
           child: Column(
-            //mainAxisAlignment: MainAxisAlignment.center,
-
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(height: 0.03*screenH,),
-              StreamBuilder(
-                  stream: FirebaseFirestore.instance
-                      .collection("Profile")
-                      .snapshots(),
-                  builder: (context, snapshots) {
-                    if (snapshots.hasData && strm_opn == true) {
-                      final res = snapshots.data!.docs.toList();
-                      for (var r in res) {
-                        if (r['uid'] ==
-                            FirebaseAuth.instance.currentUser!.uid) {
-                          c = 0;
-                          int t = c + 1;
-                          int d = t + 1;
-                          while (true) {
-                            try {
-                              if (r['notice' + c.toString()] == "" && widget.role1=="Administrator") {
-                                FirebaseFirestore.instance
-                                    .collection("Profile")
-                                    .doc(FirebaseAuth.instance.currentUser!.uid)
-                                    .update({
-                                  'notice' + c.toString():
-                                  caption.text.toString(),
-                                  'notice' + t.toString(): text.text.toString(),
-                                  'notice' + d.toString(): string,
-                                });
+              // Title Field
+              const Text(
+                'Notice Title',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _titleController,
+                style: const TextStyle(color: Colors.black),
+                decoration: InputDecoration(
+                  hintText: 'Enter notice title...',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff4f6367)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff1b6e70), width: 2),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff4f6367)),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a title';
+                  }
+                  if (value.trim().length < 3) {
+                    return 'Title must be at least 3 characters';
+                  }
+                  return null;
+                },
+              ),
 
-                                strm_opn = false;
-                                break;
-                              } else {
-                                c = c + 3;
-                                t = c + 1;
-                                d = t + 1;
-                              }
-                            } catch (e) {
-                              FirebaseFirestore.instance
-                                  .collection("Profile")
-                                  .doc(FirebaseAuth.instance.currentUser!.uid)
-                                  .update({
-                                'notice' + c.toString():
-                                caption.text.toString(),
-                                'notice' + t.toString(): text.text.toString(),
-                                'notice' + d.toString(): string,
-                              });
-                              strm_opn = false;
-                              break;
-                            }
-                          }
-                          break;
-                        }
-                      }
-                    }
-                    return Center();
-                  }),
-              Form(
-                key: formKey,
-                child: Column(
+              const SizedBox(height: 24),
+
+              // Category Selection
+              const Text(
+                'Category',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xff4f6367)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedCategory,
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        _selectedCategory = newValue!;
+                      });
+                    },
+                    items: _categories.map<DropdownMenuItem<String>>((category) {
+                      return DropdownMenuItem<String>(
+                        value: category['value'],
+                        child: Row(
+                          children: [
+                            Icon(category['icon'],
+                                 color: const Color(0xff1b6e70), size: 20),
+                            const SizedBox(width: 8),
+                            Text(category['label']),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Priority Selection
+              const Text(
+                'Priority',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xff4f6367)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedPriority,
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        _selectedPriority = newValue!;
+                      });
+                    },
+                    items: _priorities.map<DropdownMenuItem<String>>((priority) {
+                      return DropdownMenuItem<String>(
+                        value: priority['value'],
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: priority['color'],
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(priority['label']),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Content Field
+              const Text(
+                'Notice Content',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _contentController,
+                style: const TextStyle(color: Colors.black),
+                maxLines: 8,
+                decoration: InputDecoration(
+                  hintText: 'Enter notice content...',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff4f6367)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff1b6e70), width: 2),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xff4f6367)),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter notice content';
+                  }
+                  if (value.trim().length < 10) {
+                    return 'Content must be at least 10 characters';
+                  }
+                  return null;
+                },
+              ),
+
+              const SizedBox(height: 24),
+
+              // Tags Section
+              const Text(
+                'Tags (Optional)',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _tagController,
+                      style: const TextStyle(color: Colors.black),
+                      decoration: InputDecoration(
+                        hintText: 'Add a tag...',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xff4f6367)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xff1b6e70), width: 2),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xff4f6367)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                      onFieldSubmitted: (_) => _addTag(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _addTag,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xff1b6e70),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                ],
+              ),
+
+              // Display tags
+              if (_tags.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _tags.map((tag) {
+                    return Chip(
+                      label: Text(tag),
+                      onDeleted: () => _removeTag(tag),
+                      backgroundColor: const Color(0xff1b6e70).withValues(alpha: 0.1),
+                      deleteIconColor: const Color(0xff1b6e70),
+                    );
+                  }).toList(),
+                ),
+              ],
+
+              const SizedBox(height: 24),
+
+              // Expiry Date
+              const Text(
+                'Expiry Date (Optional)',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xff1b6e70),
+                ),
+              ),
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: _selectExpiryDate,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xff4f6367)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today, color: Color(0xff1b6e70)),
+                      const SizedBox(width: 8),
+                      Text(
+                        _expiryDate != null
+                            ? 'Expires: ${_expiryDate!.day}/${_expiryDate!.month}/${_expiryDate!.year}'
+                            : 'Set expiry date',
+                        style: TextStyle(
+                          color: _expiryDate != null ? Colors.black : Colors.grey,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_expiryDate != null)
+                        IconButton(
+                          icon: const Icon(Icons.clear, color: Colors.grey),
+                          onPressed: () {
+                            setState(() {
+                              _expiryDate = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Send Notification Toggle (only for new notices)
+              if (!isEdit) ...[
+                Row(
                   children: [
-                    // SizedBox.fromSize(size: Size(0,(1/872)*screenH),),
-
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 0.01 * screenW),
-                      child: Stack(
-
-                        children:[
-                          Container(
-                            height: 0.1*screenH,
-                            decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(6),
-
-
-                                color:Color(0xff77a5b5),
-
-                                boxShadow: [BoxShadow(
-                                  color: Colors.grey.shade600,
-                                  blurRadius: 3,
-                                  offset: Offset(0,3),
-
-
-
-
-                                )]
-                            ),
-                          ),
-
-
-
-                          SingleChildScrollView(
-                            child: TextFormField(
-
-                              style: TextStyle(color: Colors.white),
-                              controller: caption,
-                              minLines: 2,
-                              maxLines: 2,
-                              keyboardType: TextInputType.multiline,
-                              validator: (value) {
-                                if (value!.isEmpty ||
-                                    !RegExp(r'[a-zA-Z]').hasMatch(value)) {
-                                  return "Enter any caption ";
-                                } else
-                                  return null;
-                              },
-                              onChanged: (value) {
-                                setState(() {
-                                  count = (80 - value.length).toString();
-                                });
-                              },
-                              maxLength: 80,
-                              maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                              decoration: InputDecoration(
-                                  border: InputBorder.none,
-                                  filled: true,
-                                  fillColor: Color(0xff77a5b5),
-                                  hintText: '  Tittle',
-                                  hintStyle: TextStyle(color: Colors.white70),
-                                  counterStyle:
-                                  TextStyle(color: Colors.black, fontSize: 15),
-                                  counterText: 'Remaining: $count',
-                                  floatingLabelAlignment:
-                                  FloatingLabelAlignment.start,
-                                  alignLabelWithHint: true,
-                                  errorBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color:  Color(0xff32959c),
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(
-                                      color:Color(0xff1d666b),
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(
-                                        color: Color(0xff32959c),
-                                      ))
-                              ),
-                            ),
-                          )
-
-                        ],
-                      ),
+                    Switch(
+                      value: _sendNotification,
+                      onChanged: (value) {
+                        setState(() {
+                          _sendNotification = value;
+                        });
+                      },
+                      activeColor: const Color(0xff1b6e70),
                     ),
-                    SizedBox.fromSize(
-                      size: Size(0, ((5 / 872)) * screenH),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 0.01 * screenW),
-                      child: Container(
-                        decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(9),
-
-
-                            color:Color(0xff77a5b5),
-
-                            boxShadow: [BoxShadow(
-                              color: Colors.grey.shade600,
-                              blurRadius: 3,
-                              offset: Offset(0,3),
-
-
-
-
-                            )]
-                        ),
-                        child: TextFormField(
-
-                          style: TextStyle(color: Colors.white),
-                          controller: text,
-                          minLines: 20,
-                          maxLines: 20,
-                          keyboardType: TextInputType.multiline,
-                          decoration: InputDecoration(
-                              filled: true,
-                              fillColor: Color(0xff77a5b5),
-                              hintText: 'Description',
-                              hintStyle:
-                              TextStyle(color: Colors.white70, fontSize: 18),
-                              floatingLabelAlignment:
-                              FloatingLabelAlignment.start,
-                              alignLabelWithHint: true,
-                              errorBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0xff32959c),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Color(0xff1d666b),
-                                ),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                  borderSide: BorderSide(
-                                    color:Color(0xff32959c),
-                                  ))),
-                          validator: (value) {
-                            if (value!.isEmpty ||
-                                !RegExp(r'[a-zA-Z]').hasMatch(value!)) {
-                              return "Enter any caption ";
-                            } else
-                              return null;
-                          },
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Send push notification to all members',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xff1b6e70),
                         ),
                       ),
-                    ),
-                    Container(
-                      height: 0.04*screenH,
-                    ),
-
-                    Container(
-                      height: 0.05*screenH,
-                      width: 0.3*screenW,
-                      decoration: BoxDecoration(
-                        color: Color(0xff33678a),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: GestureDetector(
-                          onTap: () {
-                            if (formKey.currentState!.validate()) {
-
-                              PushNotifications.init().then((value)async{
-                                final token= await FirebaseMessaging.instance.getToken();
-                                print(token);
-                                for(int i=0;i<to.length;i++){
-                                  var data={
-                                    'to':to[i],
-                                    'priority':'high',
-                                    'notification':{
-                                      'title':"Notice\n"+caption.text.toString(),
-                                      'body':text.text.toString(),
-                                    },
-                                    'additional option':{
-                                      'channel':'1',
-                                    }
-
-                                  };
-                                  await http.post(Uri.parse('https://fcm.googleapis.com/fcm/send'),
-                                      body:jsonEncode(data) ,
-                                      headers: {
-                                        'Content-Type':'application/json; charset=UTF-8',
-                                        'Authorization':'key=AAAA2TCZdvQ:APA91bHvIxfRdJ4yoEJXHDrPKBcMeWmf-VlVcHuh6gvun7QUGwrFiN9dobcO7H8jx1Z7ayt3nXEV2yjnoWB3_VbdranUUy8UNRfuEDOtb9vCWqi-DXxmZk-1Bnul2UfUnX1zhi-pm9vH'
-                                      }
-                                  );}
-
-
-                              });
-                              DateFormat dateFormat =
-                              DateFormat("yyyy-MM-dd HH:mm:ss");
-                              string = dateFormat.format(DateTime.now());
-                              Navigator.pop(context);
-                              setState(() {
-                                strm_opn = true;
-                              });
-                            }
-                          },
-                          child: Center(child: const Text("Publish",style: TextStyle(color: Colors.white),))),
                     ),
                   ],
                 ),
+                const SizedBox(height: 24),
+              ],
+
+              // Submit Button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _saveNotice,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xff1b6e70),
+                    elevation: 8,
+                    shadowColor: Colors.black26,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        )
+                      : Text(
+                          isEdit ? 'Update Notice' : 'Add Notice',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
               ),
+
+              const SizedBox(height: 16),
             ],
           ),
-        );
-      })
-
-
+        ),
+      ),
     );
   }
 }

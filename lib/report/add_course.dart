@@ -76,7 +76,7 @@ class _add_courseState extends State<add_course> {
                               controller:course_n ,
                             ),
                             ElevatedButton(
-                              style: ElevatedButton.styleFrom(primary: Color(0xffA0DCE2)),
+                              style: ElevatedButton.styleFrom(backgroundColor: Color(0xffA0DCE2)),
                                 onPressed: (){
                               var map={};
                               map['Name']=course_n.text.toString();

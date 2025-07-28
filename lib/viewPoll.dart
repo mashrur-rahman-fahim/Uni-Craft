@@ -1,311 +1,398 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:uni_craft/poll_graph.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'models/poll.dart';
+import 'services/polls_service.dart';
+import 'widget/poll_card.dart';
+import 'widget/poll_details_dialog.dart';
 
-class ViewPoll extends StatefulWidget {
-  var uid,role;
+class ViewPollsPage extends StatefulWidget {
+  final String joinCode;
+  final String userRole;
 
-  ViewPoll(this.uid,this.role);
+  const ViewPollsPage({
+    Key? key,
+    required this.joinCode,
+    required this.userRole,
+  }) : super(key: key);
 
   @override
-  State<ViewPoll> createState() => _ViewPollState();
+  _ViewPollsPageState createState() => _ViewPollsPageState();
 }
 
-class _ViewPollState extends State<ViewPoll> {
-  var option, vote, poll_id, poll_idIdx;
-  var caption;
-  var option3 = false;
+class _ViewPollsPageState extends State<ViewPollsPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  Map<String, dynamic> _statistics = {};
+  bool _isLoading = true;
 
-  var poll = false;
-  bool v_poll = true, check = false;
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _loadStatistics();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadStatistics() async {
+    try {
+      final stats = await PollsService.getPollStatistics(widget.joinCode);
+      setState(() {
+        _statistics = stats;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showPollDetails(Poll poll) {
+    showDialog(
+      context: context,
+      builder: (context) => PollDetailsDialog(
+        poll: poll,
+        onVote: _handleVote,
+        onEdit: _canEditPoll(poll) ? () => _editPoll(poll) : null,
+        onDelete: _canDeletePoll(poll) ? () => _deletePoll(poll) : null,
+        onToggleStatus: _canEditPoll(poll) ? () => _togglePollStatus(poll) : null,
+      ),
+    );
+  }
+
+  Future<void> _handleVote(String pollId, int optionIndex) async {
+    try {
+      await PollsService.voteOnPoll(pollId: pollId, optionIndex: optionIndex);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vote recorded successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _deletePoll(Poll poll) async {
+    final confirmed = await _showConfirmationDialog(
+      'Delete Poll',
+      'Are you sure you want to delete "${poll.title}"? This action cannot be undone.',
+    );
+
+    if (confirmed) {
+      try {
+        await PollsService.deletePoll(poll.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Poll deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadStatistics(); // Refresh statistics
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting poll: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _togglePollStatus(Poll poll) async {
+    final newStatus = poll.status == PollStatus.active
+        ? PollStatus.closed
+        : PollStatus.active;
+
+    try {
+      await PollsService.updatePollStatus(poll.id, newStatus);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Poll ${newStatus == PollStatus.active ? 'opened' : 'closed'} successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _loadStatistics(); // Refresh statistics
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating poll: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _editPoll(Poll poll) {
+    // Navigate to edit poll page (would be implemented)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Edit functionality coming soon!'),
+        backgroundColor: Colors.blue,
+      ),
+    );
+  }
+
+  bool _canEditPoll(Poll poll) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    return currentUser != null &&
+           poll.creatorUid == currentUser.uid &&
+           (widget.userRole == 'Administrator' || widget.userRole == 'Co-Administrator');
+  }
+
+  bool _canDeletePoll(Poll poll) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    return currentUser != null &&
+           (poll.creatorUid == currentUser.uid || widget.userRole == 'Administrator');
+  }
+
+  Future<bool> _showConfirmationDialog(String title, String content) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+  }
 
   @override
   Widget build(BuildContext context) {
-    double screenW = MediaQuery.of(context).size.width;
-    double screenH = MediaQuery.of(context).size.height;
     return Scaffold(
+      backgroundColor: const Color(0xffb8d8d8),
       appBar: AppBar(
-        backgroundColor: Color(0xff7a9e9f),
-        title: Text(
-          "View Poll",
-          style: TextStyle(
-              //fontSize: 35,
-              ),
+        title: const Text('Polls'),
+        backgroundColor: const Color(0xff77a5b5),
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(100),
+          child: Column(
+            children: [
+              _buildSearchBar(),
+              _buildTabBar(),
+            ],
+          ),
         ),
       ),
-      body: StreamBuilder(
-        stream: FirebaseFirestore.instance
-            .collection("Profile")
-            .where('uid', isEqualTo: widget.uid)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            int i;
-            try {
-
-              poll_id = snapshot.data?.docs[0]['poll_id'];
-              for (i = 0; i < poll_id.length; i++) {
-
-                if (snapshot.data?.docs[0]['poll_id'][i] ==
-                    FirebaseAuth.instance.currentUser!.uid.toString()) {
-
-                  break;
-                }
-              }
-
-              if (i == poll_id.length) {
-                poll = true;
-
-              }
-
-              option = snapshot.data?.docs[0]['options'];
-
-              caption = snapshot.data?.docs[0]['caption'];
-              vote = snapshot.data?.docs[0]['votes'];
-              try {
-                print(option[2]);
-                option3 = true;
-              } catch (e) {
-                option3 = false;
-              }
-              check = true;
-            } catch (e) {
-
-              v_poll = false;
-              check = false;
-            }
-          }
-
-          return v_poll == true && check == true
-              ? SingleChildScrollView(
-            physics: BouncingScrollPhysics(),
-                child: Card(
-                    elevation: 5.0,
-                    margin: EdgeInsets.symmetric(
-                        vertical: 0.22 * screenH, horizontal: 0.02 * screenW),
-                    color: Color(0xff77a5b5),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 0.9 * screenW,
-                            height: 0.07 * screenH,
-                            child: Card(
-                              color: Color(0xffd5eded),
-                              elevation: 5,
-                              child: Center(
-                                child: Text(
-                                  caption,
-                                  maxLines: 2,
-                                  textAlign: TextAlign.justify,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 23,
-                                      color: Colors.black,
-                                      fontWeight: FontWeight.bold,
-                                      fontStyle: FontStyle.italic),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                              height: 0.03 *
-                                  screenH), // Add some space between the caption and buttons
-                          Container(
-                            width: 0.6 * screenW,
-                            height: 0.06 * screenH,
-                            child: Card(
-                              elevation: 2,
-                              color: Color(0xff218D97),
-                              child: GestureDetector(
-                                onTap: () {
-                                  print("Op1");
-
-
-                                  if (poll == true) {
-                                    poll = false;
-
-                                    poll_id.add(
-                                      FirebaseAuth.instance.currentUser!.uid
-                                          .toString(),
-                                    );
-
-                                    int temp = int.parse(vote[0]);
-                                    temp++;
-                                    vote[0] = temp.toString();
-                                    FirebaseFirestore.instance
-                                        .collection("Profile")
-                                        .doc(widget.uid)
-                                        .update({
-                                      'votes': vote,
-                                      'poll_id': poll_id,
-                                    });
-                                  }
-
-                                },
-                                child: Center(
-                                  child: Text(
-                                    option[0],
-                                    style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,color: Colors.white),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(
-                              height: 0.01 *
-                                  screenH), // Add some space between the buttons
-                          Container(
-                            width: 0.6 * screenW,
-                            height: 0.06 * screenH,
-                            child: Card(
-                              elevation: 2,
-                              color: Color(0xff196B72),
-                              child: GestureDetector(
-                                onTap: () {
-                                  print("op2");
-                                  if (poll == true) {
-                                    poll = false;
-
-                                    poll_id.add(
-                                      FirebaseAuth.instance.currentUser!.uid
-                                          .toString(),
-                                    );
-
-                                    int temp = int.parse(vote[1]);
-                                    temp++;
-                                    vote[1] = temp.toString();
-                                    FirebaseFirestore.instance
-                                        .collection("Profile")
-                                        .doc(widget.uid)
-                                        .update({
-                                      'votes': vote,
-                                      'poll_id': poll_id,
-                                    });
-
-                                  }
-                                },
-                                child: Center(
-                                  child: Text(
-                                    option[1],
-                                    style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,color: Colors.white),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: 0.01 * screenH),
-                          option3 == true
-                              ? Container(
-                                  width: 0.6 * screenW,
-                                  height: 0.06 * screenH,
-                                  child: Card(
-                                    elevation: 2,
-                                    color: Color(0xff14545A),
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        if (poll == true) {
-                                          poll = false;
-
-                                          poll_id.add(
-                                            FirebaseAuth.instance.currentUser!.uid
-                                                .toString(),
-                                          );
-
-                                          int temp = int.parse(vote[2]);
-                                          temp++;
-                                          vote[2] = temp.toString();
-                                          FirebaseFirestore.instance
-                                              .collection("Profile")
-                                              .doc(widget.uid)
-                                              .update({
-                                            'votes': vote,
-                                            'poll_id': poll_id,
-                                          });
-                                        }
-
-                                      },
-                                      child: Center(
-                                        child: Text(
-                                          option[2],
-                                          style: TextStyle(fontSize: 22,fontWeight: FontWeight.bold,color: Colors.white),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : Container(),
-                          SizedBox(height: 0.04*screenH),
-
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              widget.role=="Administrator"?
-                              Container(
-                                height: 0.05*screenH,
-                                width: 0.3*screenW,
-                                decoration: BoxDecoration(
-                                  color: Color(0xffa84747),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: GestureDetector(
-                                  onTap: () {
-                                    FirebaseFirestore.instance
-                                        .collection("Profile")
-                                        .doc(widget.uid)
-                                        .update({
-                                      'options': FieldValue.delete(),
-                                      'votes': FieldValue.delete(),
-                                      'poll_id': FieldValue.delete(),
-                                    });
-                                  },
-                                  child: Center(child: Text("Delete Poll",style: TextStyle(color: Colors.white),)),
-                                ),
-                              ):Center(),
-                              SizedBox.fromSize(size: Size(0.02*screenW,0),),
-                              Container(
-                                height: 0.05*screenH,
-                                width: 0.3*screenW,
-                                decoration: BoxDecoration(
-                                  color: Color(0xff3f7070),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: GestureDetector(
-                                  onTap: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            poll_graph(widget.uid),
-                                      ),
-                                    );
-                                  },
-                                  child:Center(child: Text("Poll Graph",style: TextStyle(color: Colors.white),)),
-                                ),
-                              ),
-                            ],
-                          ),
-                          // Adjust the height as needed
-                        ],
-                      ),
-                    ),
-                  ),
-              )
-              : Center(
-                  child: Text(
-                    "No poll has been created",
-                    style: TextStyle(fontSize: 21),
-                  ),
-                );
-        },
+      body: Column(
+        children: [
+          if (!_isLoading) _buildStatisticsCard(),
+          Expanded(child: _buildTabContent()),
+        ],
       ),
-      backgroundColor: Color(0xffb8d8d8),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: TextField(
+        controller: _searchController,
+        decoration: InputDecoration(
+          hintText: 'Search polls...',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        onChanged: (value) => setState(() => _searchQuery = value),
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    return TabBar(
+      controller: _tabController,
+      indicatorColor: Colors.white,
+      labelColor: Colors.white,
+      unselectedLabelColor: Colors.white70,
+      tabs: const [
+        Tab(text: 'All Polls'),
+        Tab(text: 'Active'),
+        Tab(text: 'Closed'),
+      ],
+    );
+  }
+
+  Widget _buildStatisticsCard() {
+    return Card(
+      margin: const EdgeInsets.all(16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildStatItem('Total', _statistics['totalPolls'] ?? 0, Colors.blue),
+            _buildStatItem('Active', _statistics['activePolls'] ?? 0, Colors.green),
+            _buildStatItem('Closed', _statistics['closedPolls'] ?? 0, Colors.orange),
+            _buildStatItem('Votes', _statistics['totalVotes'] ?? 0, Colors.purple),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(
+          count.toString(),
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabContent() {
+    return TabBarView(
+      controller: _tabController,
+      children: [
+        _buildPollsList(null), // All polls
+        _buildPollsList(PollStatus.active), // Active polls
+        _buildPollsList(PollStatus.closed), // Closed polls
+      ],
+    );
+  }
+
+  Widget _buildPollsList(PollStatus? statusFilter) {
+    return StreamBuilder<List<Poll>>(
+      stream: PollsService.getPollsByJoinCode(widget.joinCode),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return _buildEmptyState();
+        }
+
+        List<Poll> polls = snapshot.data!;
+
+        // Filter by status
+        if (statusFilter != null) {
+          polls = polls.where((poll) {
+            if (statusFilter == PollStatus.active) {
+              return poll.isActive;
+            } else {
+              return poll.status == statusFilter;
+            }
+          }).toList();
+        }
+
+        // Filter by search query
+        if (_searchQuery.isNotEmpty) {
+          polls = polls.where((poll) {
+            final query = _searchQuery.toLowerCase();
+            return poll.title.toLowerCase().contains(query) ||
+                   poll.description.toLowerCase().contains(query) ||
+                   poll.creatorName.toLowerCase().contains(query);
+          }).toList();
+        }
+
+        if (polls.isEmpty) {
+          return _buildEmptyState();
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: polls.length,
+          itemBuilder: (context, index) {
+            final poll = polls[index];
+            return PollCard(
+              poll: poll,
+              onTap: () => _showPollDetails(poll),
+              onVote: _handleVote,
+              canEdit: _canEditPoll(poll),
+              canDelete: _canDeletePoll(poll),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.poll_outlined,
+            size: 64,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No polls found',
+            style: TextStyle(
+              fontSize: 18,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _searchQuery.isNotEmpty
+                ? 'Try adjusting your search terms'
+                : 'Create your first poll to get started',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
